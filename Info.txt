@@ -1,0 +1,5 @@
+This project was developed for the class "Projeto nível I em eletrônica 2" of the Universidade
+Federal de Santa Catarina, and it's purpouse is to remind people who have diabetes to apply the 
+insulin injection.
+By using this program, you can set a timer to remind you to take insulin injections and
+recieve notifications on your phone and on your e-mail account.

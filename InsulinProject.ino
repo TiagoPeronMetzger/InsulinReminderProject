@@ -1,0 +1,530 @@
+/* 
+ *  Including Libraries
+ */
+#define BLYNK_PRINT Serial
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#include <RTC.h>
+
+static DS1307 RTC;
+
+// ============================ RTC+DISPLAY SESSION =====================================
+
+const byte SCREEN_WIDTH = 128; // OLED display width, in pixels
+const byte SCREEN_HEIGHT = 64; // OLED display height, in pixels
+
+// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+const int OLED_RESET = -1; // Reset pin # (or -1 if sharing Arduino reset pin)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+// ======================================================================================
+// =============================== BLYNK SESSION =======================================
+#define BLYNK_AUTH_TOKEN "nK2BCsYyhF2M3YvBnt-a_x-4UcGEBcUN"
+
+char auth[] = BLYNK_AUTH_TOKEN;
+char ssid[] = "motorolaT";//Enter your WIFI name
+char pass[] = "raven123";//Enter your WIFI password
+
+int buttonflag = 0;
+
+//Get the up button
+BLYNK_WRITE(V3) {
+  buttonflag = 1;
+}
+//Get the down button
+BLYNK_WRITE(V4) {
+  buttonflag = 2;
+}
+//Get the confirm button
+BLYNK_WRITE(V5) {
+  buttonflag = 3;
+}
+//Get the back button
+BLYNK_WRITE(V6) {
+  buttonflag = 4;
+}
+// ======================================================================================
+// ======================================= FLAGS ========================================
+
+int flag_DefDate = 0;
+int flag_SelDate = 0;
+int flag_SelDateStep = 0;
+int flag_States = 0;
+int flag_BlynkEvent = 0;
+
+// 0 = false, 1 = true
+int flag_CheckTime = 0;
+
+int flag_Options = 1;
+int datetime_minute = 0;
+int datetime_hour = 0;
+int datetime_day = 0;
+int datetime_month = 0;
+int datetime_year = 0;
+
+// ======================================================================================
+// ======================================= SETUP ========================================
+void setup () {
+  Serial.begin(9600);
+  
+  
+  // initialize with the I2C address 0x3C
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+
+  // Clear the display and then writes the main menu page.
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0,0);
+  display.print("Menu principal\n");
+  display.display();
+
+  // initializes the RTC
+  RTC.begin();
+  RTC.setHourMode(CLOCK_H24);
+  RTC.startClock();
+  
+  //Initialize the Blynk library
+  Blynk.begin(auth, ssid, pass, "blynk.cloud", 80);
+
+  // passes the current time to the date_time variables.
+  passCurrentTime();
+
+  
+  delay(1000);
+
+}
+
+/*
+ * @Brief: this function  is responsible for selecting the
+ * different options on the main menu page.
+ */
+void processStates(int flagStates)
+{
+  switch(flagStates)
+  {
+    case 0:drawMenu();
+    break;
+    case 1:showDate();
+    break;
+    case 2:defineDate();
+    break;
+    case 3:eraseDate();
+    break;
+    case 4:InjectionApply();
+    break;
+    
+  }
+}
+
+
+/*
+ * @Brief: Draws the main menu page and shows the user current
+ * selected option using the buttonflag variable.
+ * buttonflag == 1: up button
+ * buttonflag == 2: down button
+ * buttonflag == 3: confirm button
+ * buttonflag == 4: return button.
+ * the up and down buttons are used to change the value of the
+ * flag_Options variable, then when the confirm button is pressed,
+ * flag_States recive the flag_Options value.
+ * the display also draws the current time and checks if the user
+ * can inject another dose.
+ */
+void drawMenu()
+{
+  // Clear the buffer.
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.print("Menu principal:\n");
+
+  if (buttonflag == 1)
+  {
+    if (flag_Options == 1) flag_Options = 4;
+    else flag_Options = flag_Options - 1;
+    buttonflag = 0;
+  }
+  else if (buttonflag == 2)
+  {
+    if (flag_Options == 4) flag_Options = 1;
+    else flag_Options = flag_Options + 1;
+    buttonflag = 0;
+  }
+  else if (buttonflag == 3)
+  {
+    flag_States = flag_Options;
+    buttonflag = 0;
+    flag_Options = 1;
+  }
+  
+
+  switch(flag_Options)
+  {
+    case 1:
+    display.print("-> Checar horario\n");
+    display.print("   Definir horario\n");
+    display.print("   Remover horario\n");
+    display.print("   Aplicar dose\n");
+    break;
+    case 2:
+    display.print("   Checar horario\n");
+    display.print("-> Definir horario\n");
+    display.print("   Remover horario\n");
+    display.print("   Aplicar dose\n");
+    break;
+    case 3:
+    display.print("   Checar horario\n");
+    display.print("   Definir horario\n");
+    display.print("-> Remover horario\n");
+    display.print("   Aplicar dose\n");
+    break;
+    case 4:
+    display.print("   Checar horario\n");
+    display.print("   Definir horario\n");
+    display.print("   Remover horario\n");
+    display.print("-> Aplicar dose\n");
+    break;
+  }
+
+  display.print("Horario Atual:\n");  
+  
+  
+  display.print(String(RTC.getMinutes()));
+  display.print(":");
+  display.print(String(RTC.getHours()));
+  display.print(" ");
+  display.print(String(RTC.getDay()));
+  display.print("/");
+  display.print(String(RTC.getMonth()));
+  display.print("/");
+  display.print(String(RTC.getYear()));
+  display.print("\n");
+  display.display();
+
+  checkDate();
+  if (flag_CheckTime == 1)
+  {
+    display.print("Dose disponivel"); 
+    if (flag_BlynkEvent == 1)
+    {
+      Blynk.logEvent("injectionavailable");
+      flag_BlynkEvent = 0;
+    }
+  } 
+  else
+  {
+    display.print("Dose indisponivel");
+    flag_BlynkEvent = 1;
+  }
+  display.display();
+}
+
+/*
+ * @Brief: shows on the display when is the next dose
+ */
+void showDate()
+{
+  // Clear the buffer.
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.print("Proxima dose\nHora:\n");
+  display.print(datetime_minute,DEC);
+  display.print(":");
+  display.print(datetime_hour,DEC);
+  display.print("\nDia:\n");
+  display.print(datetime_day,DEC);
+  display.print("/");
+  display.print(datetime_month,DEC);
+  display.print("/");
+  display.print(datetime_year,DEC);
+
+  
+  if (buttonflag == 3)
+  {
+    flag_States = 0;
+    buttonflag = 0;
+  }
+  
+}
+
+/*
+ * @Brief: define a new date for the next dose.
+ */
+
+void defineDate()
+{
+  switch(flag_SelDateStep)
+  {
+    case 0:
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.print("Defina o minuto\n");
+    display.print(String(flag_SelDate));
+    break;
+    case 1:
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.print("Defina a Hora\n");
+    display.print(String(flag_SelDate));
+    break;
+    case 2:
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.print("Defina o Dia\n");
+    display.print(String(flag_SelDate));
+    break;
+    case 3:
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.print("Defina o Mes\n");
+    display.print(String(flag_SelDate));
+    break;
+    case 4:
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.print("Defina o Ano\n");
+    display.print(String(flag_SelDate));
+    break;
+    case 5:
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.print("Horario memorizado");
+    delay(5000);
+    flag_States = 0;
+    flag_SelDateStep = 0;
+    break;
+  }
+
+  if (buttonflag == 1)
+  {
+    if (flag_SelDate == 60 && flag_SelDateStep == 0) flag_Options = 60;
+    else if (flag_SelDate == 24 && flag_SelDateStep == 1) flag_Options = 24;
+    else if (flag_SelDate == 31 && flag_SelDateStep == 2) flag_Options = 31;
+    else if (flag_SelDate == 12 && flag_SelDateStep == 3) flag_Options = 12;
+    else flag_SelDate = flag_SelDate + 1;
+    buttonflag = 0;
+  }
+  else if (buttonflag == 2)
+  {
+    if (flag_SelDate == 0) flag_SelDate = 0;
+    else flag_SelDate = flag_SelDate - 1;
+    buttonflag = 0;
+  }
+  else if (buttonflag == 3)
+  {
+    
+    if (flag_SelDateStep == 0) 
+    {
+      datetime_minute = flag_SelDate;
+      flag_SelDate = RTC.getHours();
+    }
+    else if (flag_SelDateStep == 1) 
+    {
+      datetime_hour = flag_SelDate;
+      flag_SelDate = RTC.getDay();
+    }
+    else if (flag_SelDateStep == 2)
+    {
+      datetime_day = flag_SelDate;
+      flag_SelDate = RTC.getMonth();
+    }
+    else if (flag_SelDateStep == 3) 
+    {
+      datetime_month = flag_SelDate;
+      flag_SelDate = RTC.getYear();
+    }
+    else if (flag_SelDateStep == 4) datetime_year = flag_SelDate;
+    flag_SelDateStep = flag_SelDateStep +1;
+    buttonflag = 0;
+  }
+  else if (buttonflag == 4)
+  {
+    if (flag_SelDateStep == 0) flag_SelDateStep = 0;
+    else flag_SelDateStep = flag_SelDateStep -1;
+    buttonflag = 0;
+  }
+  
+}
+
+/*
+ * @Brief: erase the next dose date
+ */
+
+void eraseDate()
+{
+// Clear the buffer.
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.print("Horario removido\n");
+  display.print("Confirma para Definir horario");
+  display.display();
+
+  
+  if (buttonflag == 3)
+  {
+    flag_States = 0;
+    buttonflag = 2;
+  }
+}
+
+/*
+ * @Brief: checks if the user can apply the next dose if possible,
+ * then ask to select the dosage and pass this value to the function
+ * applyInject
+ */
+
+void InjectionApply()
+{
+  // Clear the buffer.
+  display.clearDisplay();
+  display.setCursor(0,0);
+  display.print("Escolha a dosagem\n");
+
+  if (buttonflag == 1)
+  {
+    flag_Options = 1;
+  }
+  else if (buttonflag == 2)
+  {
+    flag_Options = 2;
+  }
+  else if (buttonflag == 3 && flag_Options == 1)
+  {
+    applyInject(8);
+    flag_States = 0;
+  }
+  else if (buttonflag == 3 && flag_Options == 2)
+  {
+    applyInject(12);
+    flag_States = 0;
+  }
+  
+  switch(flag_Options)
+  {
+    case 1:
+    display.print("-> 150 doses\n");
+    display.print("   250 doses");
+    break;
+    case 2:
+    display.print("   150 doses\n");
+    display.print("-> 250 doses");
+    break;
+  }
+}
+
+/*
+ * @Brief: gets the dosage value and based on it,
+ *  sets diferent times for the next dosae
+ */
+
+void applyInject(int dosage)
+{
+  checkDate();
+
+  if (flag_CheckTime)
+  {
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.print("Injecao aplicada com sucesso");
+    display.display();
+    defineNextTimer(dosage);
+    flag_CheckTime = 0;
+    delay (5000);
+    flag_States = 0;
+  }
+  else
+  {    
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.print("Ainda nao esta no horario da injecao");
+    display.display();
+    delay (5000);
+    flag_States = 0;
+  }
+}
+
+/*
+ * @Brief: checks if the current time is higher than
+ * the next dosage time.
+ */
+
+void checkDate()
+{
+  if (RTC.getYear() >= datetime_year)
+  {
+    if ((RTC.getMonth() >= datetime_month) || ((datetime_month < RTC.getMonth()) && (RTC.getYear() < datetime_year)))
+    {
+      if ((RTC.getDay() >= datetime_day) || ((datetime_day < RTC.getDay()) && (RTC.getMonth() < datetime_month)))
+      {
+        if ((RTC.getHours() >= datetime_hour) || ((datetime_hour < RTC.getHours()) && (RTC.getDay() < datetime_day)))
+        {
+          if (RTC.getMinutes() >= datetime_minute)
+          {
+            flag_CheckTime = 1;
+          }else flag_CheckTime = 0;
+        }else flag_CheckTime = 0;
+      }else flag_CheckTime = 0;
+    }else flag_CheckTime = 0;
+  }else flag_CheckTime = 0;
+}
+
+
+/*
+ * @Brief: Recieves the dosage value and then
+ * add its value to the current date time.
+ */
+
+void defineNextTimer(int dosage)
+{
+  passCurrentTime();
+  datetime_hour = datetime_hour+dosage;
+  if (datetime_hour >= 24)
+  {
+    datetime_hour = int(RTC.getHours()) - 24 + dosage;
+    datetime_day = int(RTC.getDay()) + 1;
+    if (datetime_day >= 31)
+    {
+      datetime_day = 1;
+      datetime_month = int(RTC.getMonth()) + 1;
+      if (datetime_month >= 12)
+      {
+        datetime_month = 1;
+        datetime_year = int(RTC.getYear()) + 1;
+      }
+    }
+  }
+}
+
+/*
+ * @Brief: passes the current datetime to the 
+ * next injection variables
+ */
+ 
+void passCurrentTime()
+{
+  datetime_minute = int(RTC.getMinutes());
+  datetime_day = int(RTC.getDay());
+  datetime_month = int(RTC.getMonth());
+  datetime_year = int(RTC.getYear());
+  datetime_hour = int(RTC.getHours());
+}
+
+void sendBlynkEventLog()
+{
+  if (flag_CheckTime = 1)
+  {
+    
+  }
+}
+
+void loop () {
+  processStates(flag_States);
+  display.display();
+  Blynk.run();
+ 
+  delay(300);
+}
