@@ -1,0 +1,4 @@
+(fp_lib_table
+  (lib (name "Placa de sensores")(type "KiCad")(uri "D:/OneDrive - UFSC/UFSC/2022.2/Projeto Nivel II Eletronica II/Projeto PCBs/Placa de sensores.pretty")(options "")(descr ""))
+  (lib (name "INEP")(type "KiCad")(uri "D:/OneDrive - UFSC/UFSC/2022.2/Projeto Nivel II Eletronica II/Projeto PCBs/INEP.pretty")(options "")(descr ""))
+)
